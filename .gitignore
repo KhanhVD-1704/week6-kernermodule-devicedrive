@@ -17,6 +17,7 @@ Module.symvers
 *.su
 
 # Editor and operating-system files
+.clang-format
 .DS_Store
 *~
 *.swp
