@@ -23,7 +23,7 @@ static char device_buffer[BUFFER_SIZE];
 static size_t data_size;
 static DEFINE_MUTEX(buffer_lock);
 
-// Hàm Kernel gọi
+/* Được VFS gọi khi process mở device. */
 static int char_buffer_open(struct inode *inode, struct file *file)
 {
 	pr_info("char_device_module: device opened, major=%u minor=%u\n",
@@ -58,7 +58,7 @@ static ssize_t char_buffer_read(struct file *file, char __user *user_buffer,
 	return bytes_read;
 }
 
-// Hàm Kernel gọi
+/* Mỗi lần ghi thay thế toàn bộ nội dung hiện có trong buffer. */
 static ssize_t char_buffer_write(struct file *file,
 				 const char __user *user_buffer, size_t count,
 				 loff_t *offset)
@@ -87,7 +87,7 @@ out:
 	return result;
 }
 
-// ioctl
+/* Xử lý các lệnh điều khiển được khai báo trong header dùng chung. */
 static long char_buffer_ioctl(struct file *file, unsigned int command,
 			      unsigned long argument)
 {
@@ -120,7 +120,7 @@ static long char_buffer_ioctl(struct file *file, unsigned int command,
 	return result;
 }
 
-// Đăng ký callback
+/* Ánh xạ các thao tác file của VFS tới callback của driver. */
 static const struct file_operations char_buffer_fops = {
 	.owner = THIS_MODULE,
 	.open = char_buffer_open,
@@ -130,7 +130,7 @@ static const struct file_operations char_buffer_fops = {
 	.unlocked_ioctl = char_buffer_ioctl,
 };
 
-// Hàm khởi tạo module nhân
+/* Đăng ký character device và yêu cầu udev tạo device node. */
 static int __init char_device_module_init(void)
 {
 	int ret;
@@ -159,16 +159,18 @@ static int __init char_device_module_init(void)
 	char_buffer_class = class_create(DEVICE_NAME);
 	if (IS_ERR(char_buffer_class)) {
 		ret = PTR_ERR(char_buffer_class);
-		pr_err("char_device_module: failed to create device class: %d\n",
+		pr_err("char_device_module: failed to create device class: "
+		       "%d\n",
 		       ret);
 		goto err_del_cdev;
 	}
 
-	char_buffer_device = device_create(char_buffer_class, NULL, device_number,
-					   NULL, DEVICE_NAME);
+	char_buffer_device = device_create(char_buffer_class, NULL,
+					   device_number, NULL, DEVICE_NAME);
 	if (IS_ERR(char_buffer_device)) {
 		ret = PTR_ERR(char_buffer_device);
-		pr_err("char_device_module: failed to create device: %d\n", ret);
+		pr_err("char_device_module: failed to create device: %d\n",
+		       ret);
 		goto err_destroy_class;
 	}
 

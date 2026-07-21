@@ -264,15 +264,16 @@ ls -l /dev/char_buffer
 `make load` build, gỡ phiên bản cũ nếu có, load module mới và chờ udev xử lý.
 Không cần lấy major từ `/proc/devices` hoặc gọi `mknod` thủ công.
 
-Kết quả thực tế trong lần kiểm thử:
+Ví dụ kết quả sau khi nạp module:
 
 ```text
 char_device_module     12288  0
 crw------- 1 root root 511, 0 ... /dev/char_buffer
 ```
 
-Major `511` được cấp động và có thể khác trên hệ thống khác. `crw-------` cho
-biết node là character device chỉ root được đọc và ghi.
+Major trong ví dụ là `511`, nhưng được cấp động nên có thể khác trên hệ thống
+khác. Quyền của device node cũng phụ thuộc vào cấu hình udev; với `crw-------`,
+chỉ root có quyền đọc và ghi.
 
 ## Kiểm tra read, write và ioctl
 
@@ -297,7 +298,7 @@ sudo ./build/char_buffer_ctl size
 sudo ./build/char_buffer_ctl read
 ```
 
-Kết quả đã kiểm chứng:
+Kết quả mong đợi:
 
 ```text
 Wrote 12 bytes
@@ -381,7 +382,8 @@ ls -l /dev/char_buffer
 
 ### `Permission denied`
 
-Node hiện chỉ cho root truy cập. Chạy công cụ bằng `sudo`.
+Kiểm tra quyền của node bằng `ls -l /dev/char_buffer`. Nếu user hiện tại không
+có quyền đọc và ghi, chạy công cụ bằng `sudo`.
 
 ### `Inappropriate ioctl for device`
 

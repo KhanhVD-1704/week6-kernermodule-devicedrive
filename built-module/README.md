@@ -12,13 +12,25 @@ Phần lý thuyết không diễn giải lại từng bước của bài charact
 đọc có thể học cơ chế module trước, sau đó dùng bài thực hành để quan sát các cơ
 chế đó trong một driver chạy được.
 
+## Thành phần thực hành
+
+Bài thực hành dùng thống nhất các tên và giao diện sau:
+
+| Thành phần | Tên |
+| --- | --- |
+| Kernel module | `char_device_module.ko` |
+| Character device | `/dev/char_buffer` |
+| Công cụ kiểm thử | `char_buffer_ctl` |
+| Dung lượng buffer | 256 byte, tối đa 255 byte dữ liệu |
+| Ioctl | `CHAR_BUFFER_CLEAR`, `CHAR_BUFFER_GET_SIZE` |
+
 ## Cấu trúc
 
 ```text
 built-module/
 ├── README.md
 ├── theory/
-│   └── README.md             # toàn bộ cơ sở lý thuyết
+│   └── README.md
 └── practice/
     ├── README.md
     ├── Makefile
@@ -37,3 +49,7 @@ make
 make check
 make unload
 ```
+
+`make` chỉ build. `make check` build, nạp module và chạy toàn bộ kiểm thử; target
+này cần quyền `sudo`. Sau khi thực hành, dùng `make unload` để gỡ module và
+`make clean` để xóa artifact trong `practice/build/`.

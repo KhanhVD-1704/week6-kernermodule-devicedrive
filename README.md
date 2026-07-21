@@ -1,18 +1,14 @@
-# Linux Kernel Week 6 Labs
+# Linux Kernel Week 6 Labs — Loadable Module
 
-Repository này tìm hiểu hai cách đưa một chức năng vào Linux kernel:
-
-- **Loadable kernel module**: build thành file `.ko`, có thể nạp hoặc gỡ khi
-  kernel đang chạy.
-- **Built-in kernel component**: liên kết trực tiếp vào kernel image và có mặt
-  từ lúc hệ thống boot.
+Repository này tìm hiểu cách xây dựng **loadable kernel module** thành file
+`.ko`, có thể nạp hoặc gỡ khi kernel đang chạy.
 
 ## Nội dung
 
-| Phần | Trạng thái | Nội dung |
-| --- | --- | --- |
-| [Built module](built-module/README.md) | Đã có | Lý thuyết về loadable kernel module và bài thực hành |
-| Built-in | Chưa triển khai | Tích hợp source vào kernel tree bằng Kconfig và Kbuild |
+- [Cơ sở lý thuyết](built-module/theory/README.md): khái niệm, Kbuild, vòng đời,
+  dependency, symbol, bảo mật và cách chẩn đoán lỗi kernel module.
+- [Thực hành character device](built-module/practice/README.md): xây dựng,
+  nạp, kiểm thử và gỡ một character-device module có hỗ trợ ioctl.
 
 ## Cấu trúc repository
 
@@ -26,9 +22,12 @@ kernel-week6-labs/
 │       ├── README.md
 │       ├── Makefile
 │       ├── include/
+│       │   └── char_buffer_ioctl.h
 │       ├── src/
+│       │   ├── Kbuild
+│       │   └── char_device_module.c
 │       └── test/
-├── built-in/                    # bổ sung sau
+│           └── char_buffer_ctl.c
 ├── .clang-format
 ├── .gitignore
 └── README.md
@@ -40,7 +39,7 @@ và không được đưa vào Git.
 ## Yêu cầu môi trường
 
 - Linux hỗ trợ loadable kernel module.
-- GCC và GNU Make.
+- GCC, GNU Make và udev.
 - Kernel headers phù hợp với kernel đang chạy.
 - Quyền quản trị để nạp và gỡ module.
 
@@ -62,8 +61,8 @@ test -d /lib/modules/$(uname -r)/build && echo "kernel headers: OK"
 cd built-module
 ```
 
-Đọc [tổng quan](built-module/README.md), sau đó chọn phần lý thuyết hoặc thực
-hành theo hướng dẫn trong thư mục này.
+Đọc [tổng quan](built-module/README.md), sau đó đọc phần lý thuyết hoặc chuyển
+vào `practice/` để build và kiểm thử module.
 
 ## Lưu ý an toàn
 

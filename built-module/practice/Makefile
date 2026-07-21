@@ -40,6 +40,7 @@ check: load
 	sudo $(TEST_BINARY) size
 	sudo $(TEST_BINARY) clear
 	sudo $(TEST_BINARY) size
+	sudo $(TEST_BINARY) read
 
 clean:
 	$(RM) -r $(BUILD_DIR)

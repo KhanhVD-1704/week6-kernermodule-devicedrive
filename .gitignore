@@ -20,5 +20,3 @@ Module.symvers
 .DS_Store
 *~
 *.swp
-
- .vscode/
