@@ -1,13 +1,17 @@
 # Thực hành — Linux Character Device Buffer
 
-`char_device_module.ko` là một external Linux kernel module triển khai character
-device driver. Khi module hoạt động, chương trình user space truy cập driver qua
+`char_device_module.ko` là một kernel module nằm ngoài cây source Linux và triển
+khai character device driver. Khi module hoạt động, chương trình user space truy cập driver qua
 `/dev/char_buffer` bằng các system call `open()`, `read()`, `write()`, `ioctl()`
 và `close()`.
 
 Driver lưu dữ liệu trong một buffer kernel 256 byte, trong đó tối đa 255 byte
 dùng cho nội dung. Mỗi lần ghi thay thế dữ liệu cũ. Ngoài đọc và ghi, driver có
 hai lệnh ioctl để lấy kích thước hiện tại và xóa buffer.
+
+Nội dung bên dưới đi theo đúng vòng đời của bài thực hành: nhận diện device node
+và dữ liệu, xem cấu trúc source, build hai thành phần, nạp module, chạy các thao
+tác kiểm tra, quan sát kernel log rồi gỡ module và dọn artifact.
 
 ## Device node và dữ liệu trong kernel
 
@@ -39,7 +43,7 @@ flowchart LR
 
 Device node và dữ liệu của driver là hai thành phần cần phân biệt:
 
-| Thành phần | Khi module đã load | Sau khi module unload |
+| Thành phần | Khi module đã nạp | Sau khi module được gỡ |
 | --- | --- | --- |
 | File `build/char_device_module.ko` | Vẫn nằm trên filesystem | Vẫn nằm trên filesystem |
 | Module trong kernel | Trạng thái `Live` | Đã được gỡ khỏi kernel |
@@ -48,7 +52,7 @@ Device node và dữ liệu của driver là hai thành phần cần phân biệ
 
 `/dev/char_buffer` không chứa nội dung đã ghi. Node chỉ mang loại device và cặp
 major/minor để VFS tìm đúng `cdev`. Dữ liệu thật nằm trong `device_buffer` thuộc
-kernel space. File `.ko` cũng không phải device node; nó là object được kernel
+kernel space. File `.ko` cũng không phải device node; nó là đối tượng được kernel
 loader dùng để tạo module đang hoạt động.
 
 ## Cấu trúc
@@ -74,8 +78,8 @@ practice/
 - `include/char_buffer_ioctl.h`: giao diện ioctl dùng chung giữa kernel và user
   space.
 - `test/char_buffer_ctl.c`: chương trình user space dùng để kiểm tra driver.
-- `Makefile`: build, load, test và unload toàn bộ bài lab.
-- `build/`: chứa module, chương trình test và file trung gian tự sinh.
+- `Makefile`: build, nạp, kiểm tra và gỡ toàn bộ bài lab.
+- `build/`: chứa module, chương trình kiểm tra và file trung gian tự sinh.
 
 ## Quá trình build
 
@@ -94,12 +98,13 @@ flowchart LR
     GCC --> TOOL["build/char_buffer_ctl"]
 ```
 
-Một lệnh `make` tạo hai kết quả. Kernel module được build bằng Kbuild tại
-`/lib/modules/$(uname -r)/build`; công cụ test được GCC biên dịch như một chương
-trình user-space thông thường. Header ioctl được dùng ở cả hai phía để command
-number luôn giống nhau.
+Một lệnh `make` tạo hai kết quả. Kernel module được Kbuild biên dịch dựa trên cây
+build tại `/lib/modules/$(uname -r)/build`; artifact của module vẫn được đặt
+trong `practice/build/`. Công cụ kiểm tra được GCC biên dịch như một chương trình
+user space thông thường. Header ioctl được dùng ở cả hai phía để mã lệnh luôn
+giống nhau.
 
-## Luồng load và unload module
+## Luồng nạp và gỡ module
 
 ### Khi nạp module
 
@@ -115,7 +120,7 @@ flowchart LR
 ```
 
 `alloc_chrdev_region()` yêu cầu kernel cấp một major/minor động. `cdev_init()`
-nối object `cdev` với bảng `file_operations`; `cdev_add()` đăng ký quan hệ đó
+nối đối tượng `cdev` với bảng `file_operations`; `cdev_add()` đăng ký quan hệ đó
 với kernel. Sau cùng, `class_create()` và `device_create()` thêm device vào Linux
 device model để udev tự tạo node.
 
@@ -136,7 +141,7 @@ flowchart LR
 
 Cleanup chạy theo thứ tự ngược với init. Device bị hủy trước, sau đó class,
 `cdev` và major/minor được trả lại. File `build/char_device_module.ko` không bị
-xóa và có thể dùng để load module lần nữa.
+xóa và có thể dùng để nạp module lần nữa.
 
 ## Mã nguồn
 
@@ -161,7 +166,7 @@ Bảng này ánh xạ system call của user space tới callback của driver:
 | `write()` | `char_buffer_write()` | Sao chép dữ liệu vào kernel buffer |
 | `read()` | `char_buffer_read()` | Sao chép dữ liệu về user space |
 | `ioctl()` | `char_buffer_ioctl()` | Điều khiển hoặc truy vấn buffer |
-| `close()` | `char_buffer_release()` | Xử lý khi reference cuối được đóng |
+| `close()` | `char_buffer_release()` | Xử lý khi tham chiếu cuối được đóng |
 
 VFS thực hiện việc tạo và đóng `struct file`. Callback `open` và `release` chỉ
 ghi log vì driver không cấp tài nguyên riêng cho từng file descriptor.
@@ -171,19 +176,28 @@ ghi log vì driver không cấp tài nguyên riêng cho từng file descriptor.
 ```c
 bytes_to_write = min(count, (size_t)(BUFFER_SIZE - 1));
 
-if (copy_from_user(device_buffer, user_buffer, bytes_to_write))
-    return -EFAULT;
+if (mutex_lock_interruptible(&buffer_lock))
+    return -ERESTARTSYS;
+
+if (copy_from_user(device_buffer, user_buffer, bytes_to_write)) {
+    result = -EFAULT;
+    goto out;
+}
 
 device_buffer[bytes_to_write] = '\0';
 data_size = bytes_to_write;
+result = bytes_to_write;
+
+out:
+mutex_unlock(&buffer_lock);
+return result;
 ```
 
 Kernel không truy cập trực tiếp pointer do user space cung cấp. Driver dùng
 `copy_from_user()` và giới hạn dữ liệu ở 255 byte để dành byte cuối cho `\0`.
-`data_size` lưu số byte hợp lệ; mỗi lần ghi thay thế nội dung trước đó.
-
-Trong source thực tế, mutex được giữ trong suốt thao tác để process khác không
-đọc hoặc thay đổi buffer cùng lúc.
+`data_size` lưu số byte hợp lệ; mỗi lần ghi thay thế nội dung trước đó. Mutex
+được giữ trong suốt thao tác và mọi nhánh sau khi lấy lock đều đi qua nhãn
+`out` để mở lock trước khi trả về.
 
 ### Đọc và EOF
 
@@ -211,19 +225,20 @@ Header dùng chung định nghĩa:
 | `CHAR_BUFFER_CLEAR` | Xóa buffer và đặt `data_size` về 0 |
 | `CHAR_BUFFER_GET_SIZE` | Dùng `copy_to_user()` trả kích thước hiện tại |
 
-`_IO` biểu diễn command không có payload. `_IOR` biểu diễn dữ liệu đi từ kernel
+`_IO` biểu diễn mã lệnh không có payload. `_IOR` biểu diễn dữ liệu đi từ kernel
 về user space. Nội dung buffer vẫn được truyền bằng `read()` và `write()`; ioctl
 chỉ dành cho điều khiển và truy vấn trạng thái.
 
 ## Build
 
-Yêu cầu GCC, GNU Make, udev và kernel headers khớp với kernel đang chạy:
+Yêu cầu GCC, GNU Make, udev và kernel headers khớp với kernel đang chạy. Source
+hiện dùng dạng một tham số của `class_create()`, vì vậy cần Linux 6.4 trở lên:
 
 ```bash
 test -d /lib/modules/$(uname -r)/build && echo "kernel headers: OK"
 ```
 
-Build module và công cụ test:
+Build module và công cụ kiểm tra:
 
 ```bash
 make
@@ -244,14 +259,16 @@ make module
 make test
 ```
 
-Hai cảnh báo sau không làm build thất bại:
+Hai thông báo sau có thể xuất hiện mà không làm build thất bại:
 
 ```text
 warning: the compiler differs from the one used to build the kernel
 Skipping BTF generation ... due to unavailability of vmlinux
 ```
 
-Nếu phiên bản GCC tương thích và file `.ko` vẫn được tạo thì có thể tiếp tục.
+Thông báo về BTF chỉ cho biết môi trường không có `vmlinux` để sinh metadata
+BTF. Với cảnh báo compiler, cần xác nhận hai compiler tương thích. Nếu lệnh
+`make` kết thúc thành công và file `.ko` được tạo thì có thể tiếp tục.
 
 ## Nạp và kiểm tra
 
@@ -261,7 +278,7 @@ lsmod | grep '^char_device_module'
 ls -l /dev/char_buffer
 ```
 
-`make load` build, gỡ phiên bản cũ nếu có, load module mới và chờ udev xử lý.
+`make load` build, gỡ phiên bản cũ nếu có, nạp module mới và chờ udev xử lý.
 Không cần lấy major từ `/proc/devices` hoặc gọi `mknod` thủ công.
 
 Ví dụ kết quả sau khi nạp module:
@@ -308,11 +325,15 @@ Buffer cleared successfully
 Buffer size: 0 bytes
 ```
 
-Lệnh `read` cuối không in nội dung vì buffer đã rỗng. Chạy toàn bộ chuỗi tự động:
+Lệnh `read` cuối không in nội dung vì buffer đã rỗng. Có thể chạy toàn bộ chuỗi
+thao tác bằng:
 
 ```bash
 make check
 ```
+
+Target `check` giúp thực hiện tuần tự các lệnh để quan sát kết quả; nó không tự
+so sánh output với giá trị mong đợi như một kiểm thử có điều kiện xác nhận.
 
 ## Kiểm tra kernel log
 
@@ -320,7 +341,7 @@ make check
 sudo dmesg | grep char_device_module | tail -30
 ```
 
-Các mốc quan trọng:
+Ví dụ rút gọn dưới đây chỉ giữ các mốc quan trọng:
 
 ```text
 char_device_module: allocated major=511 minor=0
@@ -333,8 +354,9 @@ char_device_module: buffer cleared
 char_device_module: read 0 bytes
 ```
 
-Các cặp `device opened` và `device closed` cho thấy tool đã mở và đóng file
-descriptor. `read 0 bytes` là EOF sau khi buffer bị xóa.
+Mỗi lần chạy `char_buffer_ctl`, tool mở rồi đóng một file descriptor riêng nên
+log thực tế có nhiều cặp `device opened` và `device closed` hơn ví dụ. Dòng
+`read 0 bytes` là EOF sau khi buffer bị xóa.
 
 ## Gỡ và kiểm tra
 
@@ -345,8 +367,9 @@ ls -l /dev/char_buffer
 sudo dmesg | grep char_device_module | tail -10
 ```
 
-Sau khi gỡ, `lsmod` không còn module, `/dev/char_buffer` báo `No such file or
-directory` và kernel log có:
+`make unload` gỡ module rồi chờ udev xử lý sự kiện xóa device. Sau đó, `lsmod`
+không còn module, `/dev/char_buffer` báo `No such file or directory` và kernel
+log có:
 
 ```text
 char_device_module: Unloaded
@@ -358,14 +381,14 @@ char_device_module: Unloaded
 make clean
 ```
 
-Lệnh này xóa `build/` nhưng không tự unload module đang hoạt động. Dùng
+Lệnh này xóa `build/` nhưng không tự gỡ module đang hoạt động. Dùng
 `make unload` trước nếu muốn gỡ module khỏi kernel.
 
 ## Lỗi thường gặp
 
 ### `File exists`
 
-Module đã được load. Dùng target có xử lý phiên bản cũ:
+Module đã được nạp. Dùng target có xử lý phiên bản cũ:
 
 ```bash
 make load
@@ -373,7 +396,7 @@ make load
 
 ### `open: No such file or directory`
 
-Module chưa load hoặc udev chưa tạo device node:
+Module chưa được nạp hoặc udev chưa tạo device node:
 
 ```bash
 make load
@@ -387,8 +410,8 @@ có quyền đọc và ghi, chạy công cụ bằng `sudo`.
 
 ### `Inappropriate ioctl for device`
 
-User tool mới đang gọi một phiên bản module cũ chưa hỗ trợ command. Build và
-reload lại:
+Công cụ user space mới đang gọi một phiên bản module cũ chưa hỗ trợ mã lệnh.
+Build và nạp lại:
 
 ```bash
 make

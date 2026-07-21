@@ -33,6 +33,7 @@ load: all
 
 unload:
 	@if lsmod | grep -q '^$(MODULE_NAME) '; then sudo rmmod $(MODULE_NAME); fi
+	@if command -v udevadm >/dev/null; then sudo udevadm settle; fi
 
 check: load
 	sudo $(TEST_BINARY) write "hello kernel"

@@ -1,27 +1,24 @@
-# Cơ sở lý thuyết về Linux Kernel Module
+# Cơ sở lý thuyết về Loadable Kernel Module
 
-Tài liệu này giới thiệu Linux kernel module theo thứ tự từ khái niệm, viết mã,
-build, vận hành đến xử lý lỗi. Các ví dụ sử dụng module giả `example` và có thể
-đọc độc lập.
+Tài liệu này giới thiệu các khái niệm nền tảng về loadable kernel module theo
+thứ tự từ mô hình thực thi, cấu trúc source, quá trình build đến quản lý tài
+nguyên và chẩn đoán lỗi.
 
 ## Mục lục
 
-1. [Khái niệm cơ bản](#1-khái-niệm-cơ-bản)
-2. [Built-in và loadable module](#2-built-in-và-loadable-module)
-3. [Cấu trúc source của module](#3-cấu-trúc-source-của-module)
+1. [Kernel space và user space](#1-kernel-space-và-user-space)
+2. [External loadable kernel module](#2-external-loadable-kernel-module)
+3. [Cấu trúc và vòng đời module](#3-cấu-trúc-và-vòng-đời-module)
 4. [Build module bằng Kbuild](#4-build-module-bằng-kbuild)
-5. [Vòng đời và quản lý tài nguyên](#5-vòng-đời-và-quản-lý-tài-nguyên)
-6. [Metadata, parameter và kernel log](#6-metadata-parameter-và-kernel-log)
-7. [Symbol, dependency và reference count](#7-symbol-dependency-và-reference-count)
-8. [Tương thích và bảo mật](#8-tương-thích-và-bảo-mật)
-9. [Gỡ lỗi module](#9-gỡ-lỗi-module)
+5. [Giao tiếp qua character device](#5-giao-tiếp-qua-character-device)
+6. [Truyền dữ liệu và ioctl](#6-truyền-dữ-liệu-và-ioctl)
+7. [Đồng bộ và quản lý tài nguyên](#7-đồng-bộ-và-quản-lý-tài-nguyên)
+8. [Tương thích và chẩn đoán lỗi](#8-tương-thích-và-chẩn-đoán-lỗi)
 
-## 1. Khái niệm cơ bản
+## 1. Kernel space và user space
 
-### Kernel và hai không gian thực thi
-
-Kernel là phần lõi của hệ điều hành. Nó quản lý CPU, memory, process, thiết bị
-và cung cấp system call cho chương trình.
+Kernel là phần lõi của hệ điều hành. Nó quản lý CPU, memory, process, filesystem
+và thiết bị, đồng thời cung cấp system call cho chương trình.
 
 - **Kernel space** là vùng thực thi có đặc quyền cao dành cho kernel.
 - **User space** là vùng chạy ứng dụng với quyền truy cập bị giới hạn.
@@ -47,68 +44,36 @@ flowchart TB
     CORE --> HARDWARE
 ```
 
-### Kernel module
+Kernel module mở rộng chức năng của kernel, thường được dùng cho driver,
+filesystem hoặc network protocol. Module không chạy như một process độc lập và
+không có hàm `main()`.
 
-Kernel module là thành phần code mở rộng chức năng của kernel. Module thường
-được dùng cho driver, filesystem, network protocol hoặc cơ chế quan sát hệ
-thống.
+Code module chạy trong kernel space. Lỗi truy cập memory, deadlock hoặc cleanup
+sai có thể ảnh hưởng đến toàn bộ hệ thống.
 
-Sau khi được nạp, module trở thành một phần của kernel. Nó không chạy như một
-process độc lập và không có hàm `main()`.
+## 2. External loadable kernel module
 
-> Code module chạy với quyền kernel. Một lỗi truy cập memory hoặc deadlock có
-> thể ảnh hưởng đến toàn bộ hệ thống.
+Hai thuật ngữ sau mô tả hai đặc điểm khác nhau:
 
-### Các thuật ngữ cần nhớ
-
-| Thuật ngữ | Định nghĩa ngắn |
+| Thuật ngữ | Ý nghĩa |
 | --- | --- |
-| Kernel image | File chứa kernel được nạp khi hệ thống boot |
-| Kernel module | Thành phần code mở rộng kernel |
-| LKM | Loadable Kernel Module, có thể nạp hoặc gỡ khi kernel chạy |
-| External module | Module có source nằm ngoài kernel source tree |
-| File `.ko` | Kernel object mà kernel loader có thể nạp |
+| External module | Source nằm ngoài Linux kernel source tree |
+| Loadable module | Được build thành file `.ko` và nạp khi kernel đang chạy |
 | Kbuild | Hệ thống build chính thức của Linux kernel |
-| Kernel headers | Khai báo và thông tin cần để build code cho một kernel |
+| Kernel headers | Khai báo và thông tin build của một kernel |
 
-External module mô tả **vị trí source và cách build**. Loadable module mô tả
-**cách code được đưa vào kernel**. Một external module thường được build thành
-file `.ko` rồi nạp như một LKM.
+Một external module thường được build thành loadable module. Tuy nhiên,
+“external” mô tả vị trí source và cách build, còn “loadable” mô tả cách code
+được đưa vào kernel.
 
-## 2. Built-in và loadable module
+File `.ko` trên filesystem và module đang hoạt động trong kernel là hai đối
+tượng khác nhau:
 
-Một chức năng có thể được liên kết trực tiếp vào kernel hoặc build thành module
-có thể nạp động.
+- Xóa file `.ko` không gỡ module đang chạy.
+- Gỡ module không xóa file `.ko`.
+- Module chỉ hoạt động sau khi hàm khởi tạo hoàn tất thành công.
 
-| Đặc điểm | Built-in component | Loadable module |
-| --- | --- | --- |
-| Nơi chứa code | Kernel image | File `.ko` |
-| Thời điểm sẵn sàng | Từ lúc boot | Sau khi được nạp |
-| Có thể gỡ riêng | Không | Có, nếu không còn được sử dụng |
-| Cập nhật | Thường phải build và reboot | Có thể build lại và reload |
-| Phù hợp | Chức năng thiết yếu lúc boot | Chức năng tùy chọn hoặc cần thử nghiệm |
-
-Trong Kconfig, lựa chọn thường có ba giá trị:
-
-- `y`: build vào kernel image.
-- `m`: build thành module `.ko`.
-- `n`: không build.
-
-```mermaid
-%%{init: {"theme": "dark"}}%%
-flowchart TD
-    CONFIG{"Giá trị Kconfig"}
-    CONFIG -->|"y"| BUILTIN["Kernel image"]
-    CONFIG -->|"m"| MODULE["File .ko"]
-    CONFIG -->|"n"| OMIT["Không build"]
-    BUILTIN --> BOOT["Có mặt từ lúc boot"]
-    MODULE --> LOAD["Nạp khi cần"]
-```
-
-Phần tiếp theo tập trung vào loadable module được build ngoài kernel source
-tree.
-
-## 3. Cấu trúc source của module
+## 3. Cấu trúc và vòng đời module
 
 Module đăng ký một hàm khởi tạo và một hàm kết thúc:
 
@@ -133,26 +98,42 @@ module_exit(example_exit);
 MODULE_LICENSE("GPL");
 ```
 
-Ý nghĩa từng thành phần:
-
-| Thành phần | Ý nghĩa |
+| Thành phần | Vai trò |
 | --- | --- |
 | `__init` | Đánh dấu code chỉ cần trong giai đoạn khởi tạo |
-| `__exit` | Đánh dấu code chỉ cần khi module được gỡ |
-| `module_init()` | Đăng ký hàm init |
-| `module_exit()` | Đăng ký hàm exit |
-| `MODULE_LICENSE()` | Khai báo license |
+| `__exit` | Đánh dấu code chỉ cần khi gỡ module |
+| `module_init()` | Đăng ký hàm khởi tạo |
+| `module_exit()` | Đăng ký hàm kết thúc |
+| `MODULE_LICENSE()` | Khai báo license của module |
 
-Hàm init trả `0` khi thành công hoặc errno âm khi thất bại. Hàm exit không trả
-giá trị và phải thu hồi tài nguyên mà module đang sở hữu.
+Hàm `init` trả về `0` khi thành công hoặc một mã lỗi âm, chẳng hạn
+`-ENOMEM` hay `-EINVAL`, khi thất bại. Hàm `exit` không trả về giá trị.
 
-Đã có source, bước tiếp theo là biến nó thành file `.ko`.
+```mermaid
+%%{init: {"theme": "dark"}}%%
+stateDiagram-v2
+    [*] --> Loading: insmod
+    Loading --> Live: init trả 0
+    Loading --> [*]: init trả mã lỗi âm
+    Live --> Unloading: rmmod
+    Unloading --> [*]: exit hoàn tất
+```
+
+Metadata mô tả module và được lưu trong file `.ko`:
+
+```c
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Example Author");
+MODULE_DESCRIPTION("Example kernel module");
+MODULE_VERSION("1.0");
+```
+
+Có thể xem metadata bằng lệnh `modinfo`.
 
 ## 4. Build module bằng Kbuild
 
-External module phải được build bằng Kbuild và kernel headers của kernel đích.
-
-Với source `example.c`, file Kbuild tối thiểu là:
+External module phải được build bằng Kbuild và kernel headers phù hợp với kernel
+đích. Với source `example.c`, file Kbuild tối thiểu là:
 
 ```make
 obj-m += example.o
@@ -166,19 +147,9 @@ make -C /lib/modules/$(uname -r)/build M=$PWD modules
 
 | Thành phần | Ý nghĩa |
 | --- | --- |
-| `-C` | Chạy `make` trong cây build của kernel |
-| `M=$PWD` | Chỉ thư mục external module |
-| `modules` | Yêu cầu Kbuild tạo module |
-
-```mermaid
-%%{init: {"theme": "dark"}}%%
-flowchart LR
-    SOURCE["example.c"] --> KBUILD["Kbuild"]
-    RULE["obj-m"] --> KBUILD
-    HEADERS["Kernel headers"] --> KBUILD
-    KBUILD --> OBJECT["Object trung gian"]
-    OBJECT --> MODULE["example.ko"]
-```
+| `-C` | Chuyển sang cây build của kernel |
+| `M=$PWD` | Chỉ thư mục chứa external module |
+| `modules` | Yêu cầu Kbuild tạo loadable module |
 
 Một số artifact do Kbuild tạo:
 
@@ -188,237 +159,158 @@ Một số artifact do Kbuild tạo:
 | `*.mod.c` | Metadata module được sinh tự động |
 | `Module.symvers` | Thông tin symbol và version |
 | `modules.order` | Thứ tự module được build |
-| `*.ko` | Module hoàn chỉnh |
+| `*.ko` | Loadable kernel module hoàn chỉnh |
 
-Kernel headers phải phù hợp với kernel đích. Có thể xem thông tin phiên bản
-được nhúng trong module bằng:
+## 5. Giao tiếp qua character device
 
-```bash
-modinfo -F vermagic example.ko
-```
-
-## 5. Vòng đời và quản lý tài nguyên
-
-### Vòng đời
+Character device truyền dữ liệu theo luồng byte. Chương trình user space thường
+truy cập driver thông qua một device node trong `/dev`.
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
-stateDiagram-v2
-    [*] --> Loading: insmod / modprobe
-    Loading --> Live: init trả 0
-    Loading --> [*]: init trả lỗi
-    Live --> Unloading: rmmod / modprobe -r
-    Unloading --> [*]: exit hoàn tất
+flowchart LR
+    APP["User application"]
+    NODE["Device node"]
+    NUMBER["major/minor"]
+    CDEV["struct cdev"]
+    FOPS["struct file_operations"]
+    CALLBACK["Driver callbacks"]
+
+    APP --> NODE --> NUMBER --> CDEV --> FOPS --> CALLBACK
 ```
 
-Các lệnh cơ bản:
+Major number xác định driver; minor number phân biệt các device do cùng driver
+quản lý. Device node chỉ chứa thông tin giúp VFS tìm đúng driver, không chứa dữ
+liệu nội bộ của driver.
 
-```bash
-sudo insmod example.ko
-lsmod
-modinfo example.ko
-sudo rmmod example
+Quá trình đăng ký character device thường gồm:
+
+1. Cấp major/minor bằng `alloc_chrdev_region()`.
+2. Khởi tạo `struct cdev` bằng `cdev_init()`.
+3. Đăng ký `cdev` bằng `cdev_add()`.
+4. Tạo device class bằng `class_create()`.
+5. Thêm device vào Linux device model bằng `device_create()`.
+
+`struct file_operations` ánh xạ system call tới callback:
+
+```c
+static const struct file_operations example_fops = {
+    .owner = THIS_MODULE,
+    .open = example_open,
+    .read = example_read,
+    .write = example_write,
+    .release = example_release,
+    .unlocked_ioctl = example_ioctl,
+};
 ```
 
-- `insmod` nạp trực tiếp một file `.ko`.
-- `modprobe` tìm module theo tên và xử lý dependency.
-- `lsmod` liệt kê module đang hoạt động.
-- `rmmod` gỡ module theo tên.
+`.owner = THIS_MODULE` giúp kernel giữ reference tới module khi file đang được
+mở, tránh gỡ module trong lúc callback vẫn có thể được gọi.
 
-File `.ko` và module đang chạy là hai đối tượng khác nhau. Xóa file `.ko` không
-gỡ module khỏi memory; gỡ module cũng không xóa file `.ko`.
+## 6. Truyền dữ liệu và ioctl
 
-### Cleanup khi init thất bại
+Kernel không được dereference trực tiếp pointer do user space cung cấp. Các API
+thường dùng gồm:
 
-Nếu init tạo nhiều tài nguyên, mỗi nhánh lỗi phải thu hồi các tài nguyên đã tạo
-theo thứ tự ngược.
+- `copy_from_user()`: sao chép dữ liệu từ user space vào kernel.
+- `copy_to_user()`: sao chép dữ liệu từ kernel về user space.
+- `simple_read_from_buffer()`: đọc từ kernel buffer và cập nhật file offset.
+- `simple_write_to_buffer()`: ghi vào kernel buffer và cập nhật file offset.
+
+Các hàm copy có thể không sao chép hết dữ liệu. Driver phải kiểm tra giá trị trả
+về và trả mã lỗi phù hợp, thường là `-EFAULT`, khi thao tác thất bại.
+
+File offset cho biết vị trí đọc hoặc ghi hiện tại. Khi không còn dữ liệu để đọc,
+callback `read` trả về `0` để báo EOF.
+
+`ioctl()` được dùng cho thao tác điều khiển không phù hợp với `read()` hoặc
+`write()`. Command number thường được tạo bằng các macro:
+
+| Macro | Hướng dữ liệu |
+| --- | --- |
+| `_IO` | Không có payload |
+| `_IOR` | Kernel trả dữ liệu về user space |
+| `_IOW` | User space gửi dữ liệu vào kernel |
+| `_IOWR` | Dữ liệu đi theo cả hai chiều |
+
+Kernel module và chương trình user space phải dùng cùng command number và kiểu
+payload. Một header dùng chung giúp hai phía giữ giao diện nhất quán.
+
+## 7. Đồng bộ và quản lý tài nguyên
+
+Khi nhiều process truy cập cùng trạng thái, driver phải có cơ chế đồng bộ.
+Mutex phù hợp với critical section có thể sleep:
+
+```c
+if (mutex_lock_interruptible(&buffer_lock))
+    return -ERESTARTSYS;
+
+/* Đọc hoặc thay đổi trạng thái dùng chung. */
+
+mutex_unlock(&buffer_lock);
+```
+
+`mutex_lock_interruptible()` cho phép quá trình chờ lock bị ngắt bởi signal.
+Mọi nhánh sau khi đã lấy lock phải mở lock trước khi trả về.
+
+Nếu hàm `init` tạo nhiều tài nguyên, mỗi nhánh lỗi phải thu hồi những tài
+nguyên đã tạo theo thứ tự ngược:
 
 ```text
 Khởi tạo: A → B → C
 Cleanup:  C → B → A
 ```
 
-Ví dụ:
+Kernel API thường báo lỗi theo ba dạng:
 
-```c
-ret = create_a();
-if (ret)
-    return ret;
-
-ret = create_b();
-if (ret)
-    goto free_a;
-
-return 0;
-
-free_a:
-destroy_a();
-return ret;
-```
-
-Kernel API có thể báo lỗi bằng ba dạng phổ biến:
-
-- Errno âm như `-ENOMEM` hoặc `-EINVAL`.
+- Mã lỗi âm như `-ENOMEM` hoặc `-EINVAL`.
 - `NULL`.
-- Error pointer, kiểm tra bằng `IS_ERR()` và đọc lỗi bằng `PTR_ERR()`.
+- Error pointer, kiểm tra bằng `IS_ERR()` và lấy mã lỗi bằng `PTR_ERR()`.
 
-Nguyên tắc chính:
+Nguyên tắc quản lý tài nguyên:
 
 1. Kiểm tra kết quả của API có thể thất bại.
 2. Không cleanup tài nguyên chưa được tạo.
-3. Cleanup theo thứ tự ngược với init.
-4. Không để callback hoặc worker dùng tài nguyên sau khi giải phóng.
+3. Cleanup theo thứ tự ngược với khởi tạo.
+4. Không để callback sử dụng tài nguyên sau khi giải phóng.
+5. Hàm `exit` phải thu hồi toàn bộ tài nguyên module đang sở hữu.
 
-## 6. Metadata, parameter và kernel log
+## 8. Tương thích và chẩn đoán lỗi
 
-Ba cơ chế này giúp mô tả, cấu hình và quan sát module.
+Linux không cam kết ABI nội bộ ổn định cho external module. File `.ko` được
+build cho kernel này có thể không nạp được trên kernel khác.
 
-### Metadata
-
-```c
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Example Author");
-MODULE_DESCRIPTION("Example module");
-MODULE_VERSION("1.0");
-```
-
-Metadata được lưu trong `.ko` và có thể xem bằng `modinfo`.
-
-### Module parameter
-
-Parameter cho phép cấu hình module khi nạp:
-
-```c
-static int debug;
-
-module_param(debug, int, 0644);
-MODULE_PARM_DESC(debug, "Enable debug messages");
-```
+Các lệnh kiểm tra cơ bản:
 
 ```bash
-sudo insmod example.ko debug=1
-```
-
-Permission `0644` cho phép đọc parameter và cho root thay đổi nó qua sysfs.
-Module phải kiểm tra giá trị đầu vào trước khi sử dụng.
-
-### Kernel log
-
-| Macro | Khi nên dùng |
-| --- | --- |
-| `pr_err()` | Thao tác thất bại |
-| `pr_warn()` | Có bất thường nhưng vẫn tiếp tục được |
-| `pr_info()` | Sự kiện vận hành quan trọng |
-| `pr_debug()` | Thông tin phục vụ debug |
-
-Đọc các thông báo bằng:
-
-```bash
+uname -r
+modinfo example.ko
+modinfo -F vermagic example.ko
+lsmod
 sudo dmesg | tail
 ```
 
-Không nên log quá nhiều hoặc ghi dữ liệu nhạy cảm.
-
-## 7. Symbol, dependency và reference count
-
-Ba khái niệm này giải thích cách module liên kết với kernel và với nhau.
-
-### Symbol
-
-Symbol là tên đại diện cho một hàm hoặc biến. Module chỉ dùng được symbol do
-kernel hoặc module khác export.
-
-```c
-EXPORT_SYMBOL(symbol_name);
-EXPORT_SYMBOL_GPL(gpl_symbol_name);
-```
-
-`EXPORT_SYMBOL_GPL()` chỉ cho phép module có license tương thích GPL sử dụng.
-
-### Dependency
-
-Nếu module A dùng symbol của module B, A phụ thuộc vào B. B phải được nạp trước
-A và chỉ được gỡ sau khi A không còn sử dụng nó.
-
-```mermaid
-%%{init: {"theme": "dark"}}%%
-flowchart LR
-    B["Module B"] -->|"export symbol"| SYMBOL["Symbol"]
-    SYMBOL -->|"được sử dụng bởi"| A["Module A"]
-    MODPROBE["modprobe A"] --> B --> A
-```
-
-`depmod` tạo cơ sở dữ liệu dependency. `modprobe` sử dụng dữ liệu đó để nạp các
-module theo đúng thứ tự. Lỗi `Unknown symbol` thường liên quan đến dependency
-thiếu, symbol chưa được export hoặc module không tương thích.
-
-### Reference count
-
-Reference count cho biết module đang được bao nhiêu thành phần sử dụng. Kernel
-thường không cho gỡ module khi reference count khác `0`.
-
-Module có thể quản lý reference bằng:
-
-```c
-if (!try_module_get(THIS_MODULE))
-    return -ENODEV;
-
-/* sử dụng module */
-
-module_put(THIS_MODULE);
-```
-
-Reference count giúp tránh thực thi code đã bị unload khỏi kernel memory.
-
-## 8. Tương thích và bảo mật
-
-Linux không cam kết ABI nội bộ ổn định cho external module. Một `.ko` được
-build cho kernel này có thể không nạp được trên kernel khác.
-
-Các nguyên nhân phổ biến:
-
-- Kernel version hoặc configuration không khớp.
-- Compiler hoặc symbol version không tương thích.
-- Dependency chưa được nạp.
-- Secure Boot yêu cầu module có chữ ký hợp lệ.
-
-Không nên ép kernel nạp một module không tương thích. Cách an toàn là build lại
-module bằng headers và configuration đúng của kernel đích.
-
-## 9. Gỡ lỗi module
-
-Khi module không nạp được, bước đầu tiên là đọc kernel log.
-
-```mermaid
-%%{init: {"theme": "dark"}}%%
-flowchart TD
-    FAIL["Không nạp được module"] --> LOG["Đọc dmesg / journal"]
-    LOG --> TYPE{"Thông báo lỗi"}
-    TYPE -->|"invalid module format"| VERSION["Kiểm tra vermagic"]
-    TYPE -->|"Unknown symbol"| SYMBOL["Kiểm tra dependency"]
-    TYPE -->|"Key was rejected"| SIGN["Kiểm tra module signing"]
-    TYPE -->|"Module in use"| REF["Kiểm tra reference count"]
-```
-
-Một số công cụ kiểm tra:
-
-| Công cụ | Phát hiện |
+| Hiện tượng | Nguyên nhân thường gặp |
 | --- | --- |
-| `sparse` | Lỗi kiểu dữ liệu và cách dùng API kernel |
-| lockdep | Lỗi locking và nguy cơ deadlock |
-| KASAN | Truy cập memory không hợp lệ |
-| kmemleak | Memory leak trong kernel |
+| `Invalid module format` | Module không khớp phiên bản hoặc cấu hình kernel |
+| `Unknown symbol` | Thiếu dependency hoặc symbol không được export |
+| `Key was rejected` | Secure Boot từ chối module chưa ký |
+| `Module is in use` | Module vẫn còn reference đang hoạt động |
+| Không có device node | Driver chưa đăng ký thành công hoặc udev chưa xử lý |
+| `Permission denied` | User không có quyền trên device node |
 
-Nên thử module trong máy ảo hoặc môi trường có thể phục hồi. Sau mỗi thay đổi,
-cần kiểm tra cả đường thành công, đường lỗi và nhiều vòng load/unload.
+Kernel log là nguồn thông tin đầu tiên khi module không load hoặc hoạt động
+không đúng. Không nên ép kernel nạp một module không tương thích; hãy build lại
+bằng headers và configuration đúng của kernel đích.
 
 ## Tóm tắt
 
-Luồng làm việc với một loadable kernel module có thể ghi nhớ như sau:
+Luồng làm việc cơ bản với một loadable kernel module:
 
 ```text
 Viết source
-    → build bằng Kbuild
+    → khai báo quy tắc Kbuild
+    → build thành file .ko
     → kiểm tra metadata và vermagic
     → nạp module
     → quan sát kernel log

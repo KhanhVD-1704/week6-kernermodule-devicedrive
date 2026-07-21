@@ -5,17 +5,17 @@ Repository này tìm hiểu cách xây dựng **loadable kernel module** thành 
 
 ## Nội dung
 
-- [Cơ sở lý thuyết](built-module/theory/README.md): khái niệm, Kbuild, vòng đời,
-  dependency, symbol, bảo mật và cách chẩn đoán lỗi kernel module.
-- [Thực hành character device](built-module/practice/README.md): xây dựng,
-  nạp, kiểm thử và gỡ một character-device module có hỗ trợ ioctl.
+- [Cơ sở lý thuyết](built-module/theory/README.md): kernel space, external
+  loadable module, Kbuild, vòng đời, character device, ioctl, đồng bộ, quản lý
+  tài nguyên và chẩn đoán lỗi.
+- [Thực hành character device](built-module/practice/README.md): xây dựng, nạp,
+  kiểm tra và gỡ một character-device module có hỗ trợ ioctl.
 
 ## Cấu trúc repository
 
 ```text
 kernel-week6-labs/
 ├── built-module/
-│   ├── README.md
 │   ├── theory/
 │   │   └── README.md
 │   └── practice/
@@ -28,7 +28,6 @@ kernel-week6-labs/
 │       │   └── char_device_module.c
 │       └── test/
 │           └── char_buffer_ctl.c
-├── .clang-format
 ├── .gitignore
 └── README.md
 ```
@@ -57,12 +56,20 @@ test -d /lib/modules/$(uname -r)/build && echo "kernel headers: OK"
 
 ## Bắt đầu
 
+Nếu mới làm quen với kernel module, hãy bắt đầu từ
+[phần lý thuyết](built-module/theory/README.md). Phần này độc lập với bài tập và
+trình bày các cơ chế nền tảng.
+
+Để build và chạy bài thực hành:
+
 ```bash
-cd built-module
+cd built-module/practice
+make
+make check
 ```
 
-Đọc [tổng quan](built-module/README.md), sau đó đọc phần lý thuyết hoặc chuyển
-vào `practice/` để build và kiểm thử module.
+Quy trình chi tiết, kết quả mong đợi và cách xử lý lỗi nằm trong
+[README thực hành](built-module/practice/README.md).
 
 ## Lưu ý an toàn
 
