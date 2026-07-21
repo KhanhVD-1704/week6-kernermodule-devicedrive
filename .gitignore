@@ -1,0 +1,24 @@
+# Linux kernel module build artifacts
+build/
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+*.symvers
+modules.order
+Module.symvers
+.tmp_versions/
+
+# Kernel tooling and generated metadata
+.*.cmd
+*.dwo
+*.su
+
+# Editor and operating-system files
+.DS_Store
+*~
+*.swp
+
+ .vscode/
